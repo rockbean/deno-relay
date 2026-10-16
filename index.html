@@ -1,80 +1,209 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hello, Deno</title>
-  <link rel="preload" href="https://demo-styles.deno.deno.net/fonts/Moranga-Regular.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="https://demo-styles.deno.deno.net/fonts/Moranga-Medium.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="https://demo-styles.deno.deno.net/fonts/Recursive_Variable.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="stylesheet" href="https://demo-styles.deno.deno.net/styles.css">
-  <style>
-    img {
-      display: inline-block;
-      vertical-align: middle;
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blind Relay Test Client</title>
+    <style>
+    :root {
+      color-scheme: light dark;
+      --line: color-mix(in srgb, currentColor 20%, transparent);
     }
-  </style>
-</head>
 
-<body>
-    <main>
-      <section>
-        <a href="https://deno.com/deploy">
-        </a>
-      <h1>
-        <p>
-          Hello, Deno!
-        </p>
-      </h1>
-      <p>
-        This little example is being served by <a href="https://deno.com/">Deno</a>.
-        You can run it locally or in porduction on <a href="https://deno.com/deploy">Deno Deploy</a> or other hosting platforms.
-      </p>
-      <ul>
-        <li>Run it locally with<code>deno task dev</code></li>
-        <li>Deploy it to <a href="https://deno.com/deploy">Deno Deploy</a> via the CLI by running<code>deno deploy</code></li>
-        <li>Run it locally and share it publically by running <code>deno deploy --connected</code></li>
-      </ul>
-    </section>
-      <hr>
-    <section>
-      <h2>What's next?</h2>
-      <p>
-        You can clone this example and deploy it to Deno Deploy in just a few clicks
-        <a href="https://app.deno.com/new?clone=https://github.com/denoland/examples&path=hello-world"><img src="https://deno.com/button" alt="Deploy on Deno"/></a>
-      </p>
-      <ul>
-        <li>
-          <a href="https://docs.deno.com/examples">More examples in the Deno Docs</a>
-        </li>
-        <li>
-          <a href="https://deno.com/deploy">Deno Deploy Early Access</a>
-        </li>
-      </ul>
-    </section>
-    </main>
-    <hr>
-    <footer>
-      <section>
-      <ul class="flex-btwn">
-        <li>
-          <a href="https://deno.com">BlueSky</a>
-        </li>
-        <li>
-          <a href="https://deno.com">Twitter</a>
-        </li>
-        <li>
-          <a href="https://deno.com">YouTube</a>
-        </li>
-        <li>
-          <a href="https://deno.com">Newsletter</a>
-        </li>
-        <li>
-          <a href="https://deno.com">Deno</a>
-        </li>
-      </ul>
-      </section>
-    </footer>
-</body>
+    body {
+      font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      margin: 0 auto;
+      padding: 24px;
+      max-width: 60rem;
+    }
+
+    h1 {
+      font-size: 1.1rem;
+    }
+
+    p {
+      color: color-mix(in srgb, currentColor 65%, transparent);
+    }
+
+    fieldset {
+      border: 1px solid var(--line);
+      margin: 0 0 16px;
+      padding: 12px;
+    }
+
+    legend {
+      padding: 0 6px;
+    }
+
+    label {
+      display: inline-block;
+      margin-right: 8px;
+    }
+
+    input {
+      font: inherit;
+      padding: 4px 6px;
+    }
+
+    input#room {
+      width: 8rem;
+    }
+
+    input#payload {
+      width: 20rem;
+    }
+
+    button {
+      font: inherit;
+      padding: 4px 10px;
+    }
+
+    #state {
+      margin-left: 8px;
+    }
+
+    #log {
+      border: 1px solid var(--line);
+      height: 18rem;
+      overflow-y: auto;
+      padding: 8px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    #log div {
+      padding: 1px 0;
+    }
+
+    .recv {
+      color: #0a7d3f;
+    }
+
+    .sent {
+      color: #0b5fa5;
+    }
+
+    .meta {
+      color: color-mix(in srgb, currentColor 55%, transparent);
+    }
+    </style>
+  </head>
+
+  <body>
+    <h1>Blind Relay Test Client</h1>
+    <p>
+    Open this page in two tabs with the same room id and send a message. Each
+    frame you send comes back out of the other tab and nowhere else &mdash; the
+    relay never sees inside a payload.
+  </p>
+
+    <fieldset>
+      <legend>Session</legend>
+      <label for="room">roomId</label>
+      <input id="room" value="alpha" autocomplete="off">
+      <button id="toggle" type="button">Connect</button>
+      <span id="state">disconnected</span>
+    </fieldset>
+
+    <fieldset>
+      <legend>Send</legend>
+      <label for="payload">payload</label>
+      <input id="payload" value="hello relay" autocomplete="off">
+      <button id="send" type="button" disabled>Send</button>
+    </fieldset>
+
+    <div id="log"></div>
+
+    <script>
+    const roomInput = document.getElementById("room");
+    const payloadInput = document.getElementById("payload");
+    const toggleButton = document.getElementById("toggle");
+    const sendButton = document.getElementById("send");
+    const stateLabel = document.getElementById("state");
+    const log = document.getElementById("log");
+
+    let socket = null;
+
+    function append(kind, text) {
+      const row = document.createElement("div");
+      row.className = kind;
+      row.textContent = text;
+      log.append(row);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function setState(text) {
+      stateLabel.textContent = text;
+    }
+
+    function connect() {
+      const roomId = roomInput.value.trim();
+      if (!roomId) {
+        append("meta", "! roomId is required");
+        return;
+      }
+
+      const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+      const url = `${scheme}//${location.host}/relay?roomId=${
+        encodeURIComponent(roomId)
+      }`;
+      socket = new WebSocket(url);
+      socket.binaryType = "arraybuffer";
+
+      setState(`connecting to room "${roomId}"`);
+
+      socket.addEventListener("open", () => {
+        setState(`connected to room "${roomId}"`);
+        toggleButton.textContent = "Disconnect";
+        sendButton.disabled = false;
+        append("meta", `-- connected to room "${roomId}"`);
+      });
+
+      socket.addEventListener("message", (event) => {
+        const { data } = event;
+        if (typeof data === "string") {
+          append("recv", `< ${data}`);
+        } else {
+          const bytes = new Uint8Array(data);
+          append(
+            "recv",
+            `< [${bytes.length} bytes] ${Array.from(bytes).join(" ")}`,
+          );
+        }
+      });
+
+      socket.addEventListener("close", () => {
+        setState("disconnected");
+        toggleButton.textContent = "Connect";
+        sendButton.disabled = true;
+        append("meta", "-- disconnected");
+        socket = null;
+      });
+
+      socket.addEventListener("error", () => {
+        append("meta", "! websocket error");
+      });
+    }
+
+    function disconnect() {
+      socket?.close();
+    }
+
+    function send() {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      const text = payloadInput.value;
+      socket.send(text);
+      append("sent", `> ${text}`);
+    }
+
+    toggleButton.addEventListener("click", () => {
+      socket ? disconnect() : connect();
+    });
+
+    sendButton.addEventListener("click", send);
+    payloadInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") send();
+    });
+    </script>
+  </body>
 </html>
